@@ -360,6 +360,13 @@ def draw_scan_window(ax, x:int, y:int, color_alpha:float=0.2):
     rect = Rectangle((x-1, y-1), 3, 3, linewidth=1, edgecolor=None, facecolor='grey', alpha=color_alpha)
     ax.add_patch(rect)
 
+def _ensure_parent_dir(path: Optional[str]):
+    if not path:
+        return
+    d = os.path.dirname(path)
+    if d and not os.path.exists(d):
+        os.makedirs(d, exist_ok=True)
+
 def plot_fire_maps(hist_map: List[List[str]],
                    pred_map: List[List[str]],
                    drones: List[Drone],
@@ -420,6 +427,7 @@ def plot_fire_maps(hist_map: List[List[str]],
     cbar = fig.colorbar(im1, ax=ax, fraction=0.025, pad=0.02, ticks=list(range(0,10)))
     cbar.set_label("Fire severity (0–9); unmapped tiles are transparent")
     if save_path:
+        _ensure_parent_dir(save_path)
         plt.tight_layout(); plt.savefig(save_path, dpi=200)
     return fig, ax
 
@@ -535,6 +543,7 @@ class FireViz:
         if title:
             self.ax.set_title(title)
         if save_path:
+            _ensure_parent_dir(save_path)
             self.fig.tight_layout()
             self.fig.savefig(save_path, dpi=200)
         # Nudge the GUI to render this update; caller can still call plt.pause()
@@ -728,6 +737,7 @@ def build_anim_data_only(
 
     anim = FuncAnimation(fig, update, frames=len(rounds), interval=180, blit=False)
     writer = PillowWriter(fps=6)
+    _ensure_parent_dir(out_path)
     anim.save(out_path, writer=writer, dpi=120)
     plt.close(fig)
     return out_path
@@ -738,7 +748,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fire Viz Animation")
     parser.add_argument("--rotate", type=float, default=-30, help="Data rotation in degrees CCW (e.g., 300 is 15° clockwise from 315)")
     parser.add_argument("--rounds", type=int, default=25, help="Number of rounds/frames (only for demo data mode)")
-    parser.add_argument("--outfile", type=str, default="fire_viz_anim.gif", help="Output GIF path")
+    parser.add_argument("--outfile", type=str, default="GIFs/fire_viz_anim.gif", help="Output GIF path (default: GIFs/fire_viz_anim.gif)")
     parser.add_argument("--bg", type=str, default="", help="Background image path (optional)")
     parser.add_argument("--from-outputs", action='store_true', help="Use C++ simulator outputs (vision/, paths/, maps/) instead of demo data")
     parser.add_argument("--vision-dir", type=str, default="vision", help="Directory containing vision_roundNNN.txt files")
