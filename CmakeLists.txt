@@ -1,0 +1,13 @@
+cmake_minimum_required(VERSION 3.20)
+project(FireDrones CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+add_executable(firedrones
+    src/main.cpp
+    src/Grid.cpp src/Grid.hpp
+    src/FireGen.cpp src/FireGen.hpp
+    src/Drone.cpp src/Drone.hpp
+    src/Rescue.cpp src/Rescue.hpp
+    src/Predict.cpp src/Predict.hpp
+    src/Simulation.cpp src/Simulation.hpp
+)
