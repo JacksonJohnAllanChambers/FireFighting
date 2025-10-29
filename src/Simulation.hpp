@@ -23,6 +23,7 @@ private:
     Map map_;
     std::vector<std::pair<int,int>> firefighters_;
     std::vector<Drone> drones_;
+    std::vector<RefillStation> stations_;
     FireGen firegen_;
 
     void setup();

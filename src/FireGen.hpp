@@ -17,6 +17,8 @@ public:
     void init(Map& map, std::vector<std::pair<int,int>>& ffPositions);
     void spread(Map& map);
     void firefightersAct(Map& map, const std::vector<std::pair<int,int>>& ffPositions);
+    // Change wind direction on every tile (0..3) each round, after fire updates
+    void randomizeWindDir(Map& map);
 
 private:
     FireGenConfig cfg_;

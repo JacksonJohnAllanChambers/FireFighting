@@ -34,15 +34,15 @@ void Simulation::setup() {
     firegen_.init(map_, firefighters_);
 
     // Place six refill stations (align with visualizer defaults)
-    std::vector<RefillStation> stations = {
+    stations_ = {
         {"YAR", 0, 40}, {"LUN", 140, 25}, {"WIN", 250, 70},
         {"HFX", 265, 30}, {"NG", 400, 75}, {"SYD", 540, 50}
     };
 
     // One drone per station; patrol bounds cover whole map for now
     drones_.clear();
-    for (size_t i = 0; i < stations.size(); ++i) {
-        const auto& st = stations[i];
+    for (size_t i = 0; i < stations_.size(); ++i) {
+        const auto& st = stations_[i];
         int xMin = 0, yMin = 0, xMax = WIDTH - 1, yMax = HEIGHT - 1;
         drones_.emplace_back(int(i+1), st.x, st.y, xMin, yMin, xMax, yMax, st);
     }
@@ -85,14 +85,30 @@ void Simulation::run() {
         // Start-of-round bookkeeping
         for (auto& d : drones_) d.clearPath();
 
+        // Determine if any drone's current FoV spots a severe (>=4) fire this round
+        bool severeAlert = false;
+        for (const auto& d : drones_) {
+            auto [dx, dy] = d.position();
+            for (int ix = dx - 1; ix <= dx + 1; ++ix) {
+                for (int iy = dy - 1; iy <= dy + 1; ++iy) {
+                    if (!map_.inBounds(ix, iy)) continue;
+                    if (map_.cells[ix][iy].fire_sev >= 4) { severeAlert = true; break; }
+                }
+                if (severeAlert) break;
+            }
+            if (severeAlert) break;
+        }
+
         // Per organizer rules, each drone takes one action per round
         for (auto& d : drones_) {
-            d.actRound(map_);
+            d.actRound(map_, stations_, severeAlert);
         }
 
         // Environment evolves
-        firegen_.spread(map_);
-        firegen_.firefightersAct(map_, firefighters_);
+    firegen_.spread(map_);
+    firegen_.firefightersAct(map_, firefighters_);
+    // After fire updates, change wind direction on every tile for the next round
+    firegen_.randomizeWindDir(map_);
 
         // Write map.txt (truth) for this round
         writeRoundFile(cfg_.mapPath, round, map_);

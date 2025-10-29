@@ -1,0 +1,36 @@
+# Build outputs and caches
+/build/
+*.obj
+*.o
+*.pch
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.exp
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+
+# Simulator outputs
+map.txt
+maps/
+paths/
+vision/
+
+# Visual artifacts
+GIFs/
+*.gif
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# VS Code and OS junk
+.vscode/
+.DS_Store
+Thumbs.db

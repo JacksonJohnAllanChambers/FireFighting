@@ -138,14 +138,17 @@ python -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-Use the visualizer in “from outputs” mode to build an animation from simulator artifacts. By default, the script now writes to the `GIFs/` folder and will auto-create the parent directory for any `--outfile` path you provide.
+Use the visualizer in “from outputs” mode to build an animation from simulator artifacts. By default, the script now writes to the `GIFs/` folder and will auto-create the parent directory for any `--outfile` path you provide. You can also limit how many rounds are included using `--max-frames N`.
 
 ```powershell
 # Basic: consume vision/ and paths/, ignore archived full maps (outputs to GIFs/)
 python fire_viz.py --from-outputs --maps-dir maps --bg basemap.jpg --vision-only --outfile GIFs/POV.gif
 
 # Full map view (outputs to GIFs/)
-python fire_viz.py --from-outputs --maps-dir maps --bg basemap.jpg --outfile GIFs/fire_viz.gif
+python fire_viz.py --from-outputs --maps-dir maps --bg basemap.jpg --outfile GIFs/Test1.gif --max-frames 120
+
+# Only include the first 120 rounds from outputs
+python fire_viz.py --from-outputs --maps-dir maps --outfile GIFs/run_120.gif --max-frames 120
 ```
 
 Notes:
@@ -184,7 +187,7 @@ Files:
 ./build.ps1
 
 # 2) Simulate 60 rounds
-./firedrones.exe --rounds 60 --seed 7
+./firedrones.exe --rounds 100 --seed 7
 
 # 3) Visualize results into an animated GIF (saved to GIFs/)
 python fire_viz.py --from-outputs --maps-dir maps --bg basemap.jpg --outfile GIFs/fire_viz.gif

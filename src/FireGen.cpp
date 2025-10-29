@@ -104,11 +104,25 @@ void FireGen::spread(Map& map) {
             Tile&       tgtN = next.cells[nx][ny];
 
             if (tgt0.fire_sev > 0) {
-                // Increase by +1 unless that would exceed 9
+                // Target already burning: bump toward 9
                 if (tgtN.fire_sev < 9) {
                     tgtN.fire_sev = static_cast<uint8_t>(std::min(9, int(tgtN.fire_sev) + 1));
+                } else {
+                    // Saturated wall (9) blocks expansion; try to "leapfrog" one more tile downwind
+                    int nnx = nx + dx, nny = ny + dy;
+                    if (map.inBounds(nnx, nny)) {
+                        const Tile& nxt0 = map.cells[nnx][nny];
+                        Tile&       nxtN = next.cells[nnx][nny];
+                        if (nxt0.fire_sev == 0) {
+                            int seed = std::max(1, s / 2); // seed with half of source severity
+                            if (seed > int(nxtN.fire_sev)) {
+                                nxtN.fire_sev = static_cast<uint8_t>(std::min(9, seed));
+                            }
+                        } else if (nxtN.fire_sev < 9) {
+                            nxtN.fire_sev = static_cast<uint8_t>(std::min(9, int(nxtN.fire_sev) + 1));
+                        }
+                    }
                 }
-                // else do nothing
             } else {
                 int half = s / 2; // floor
                 if (half > int(tgtN.fire_sev)) {
@@ -119,4 +133,13 @@ void FireGen::spread(Map& map) {
     }
 
     map = std::move(next);
+}
+
+void FireGen::randomizeWindDir(Map& map) {
+    for (int x = 0; x < WIDTH; ++x) {
+        for (int y = 0; y < HEIGHT; ++y) {
+            Tile& t = map.cells[x][y];
+            t.winddir = static_cast<uint8_t>(randint(0, 3));
+        }
+    }
 }

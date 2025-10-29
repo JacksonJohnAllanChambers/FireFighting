@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <climits>
 
 static inline int clampi(int v, int lo, int hi) {
     return std::max(lo, std::min(v, hi));
@@ -34,73 +35,7 @@ void Drone::moveTo(int nx, int ny) {
     path_.push_back({x_, y_});
 }
 
-void Drone::fightIfNeeded(Map& map, int iFromStart) {
-    // Simple rule: if tile is burning (severity > 0), reduce it using water.
-    if (water_ <= 0) return;
-    if (!map.inBounds(x_, y_)) return;
-    Tile& t = map.cells[x_][y_];
-    if (t.fire_sev > 0) {
-        int use = std::min(water_, 1 + (iFromStart % 2)); // vary a little
-        int sv  = t.fire_sev - use;
-        t.fire_sev = static_cast<uint8_t>(sv < 0 ? 0 : sv);
-        water_ -= use;
-        if (water_ < 0) water_ = 0;
-    }
-}
-
-void Drone::goRefill(const Map& /*map*/) {
-    // Greedy Manhattan step toward station
-    int dx = (station_.x > x_) ? 1 : (station_.x < x_ ? -1 : 0);
-    int dy = (station_.y > y_) ? 1 : (station_.y < y_ ? -1 : 0);
-    moveTo(x_ + dx, y_ + dy);
-    if (x_ == station_.x && y_ == station_.y) {
-        water_ = capacity_;
-    }
-}
-
-void Drone::step(Map& map) {
-    // 1) If low on water, head to refill
-    if (needRefill()) {
-        goRefill(map);
-        return;
-    }
-
-    // 2) Search a larger local window for a target; penalize distance
-    int bestX = x_, bestY = y_, bestScore = -1;
-    findBestTarget(map, bestX, bestY, bestScore);
-
-    int nx = x_, ny = y_;
-    if (bestScore > 0) {
-        // Move one step toward best target within patrol bounds
-        if (bestX > x_) nx = x_ + 1;
-        else if (bestX < x_) nx = x_ - 1;
-        if (bestY > y_) ny = y_ + 1;
-        else if (bestY < y_) ny = y_ - 1;
-    } else {
-        // Lawn-mower patrol: sweep rows inside patrol box
-        // Go right until edge, then down one, then go left, etc.
-        if (sweepDir_ == 1) {
-            if (x_ < xMax_) nx = x_ + 1;
-            else { sweepDir_ = -1; if (y_ < yMax_) ny = y_ + 1; }
-        } else {
-            if (x_ > xMin_) nx = x_ - 1;
-            else { sweepDir_ = 1; if (y_ < yMax_) ny = y_ + 1; }
-        }
-    }
-
-    // Clamp to patrol bounds and global bounds
-    nx = clampi(nx, xMin_, xMax_);
-    ny = clampi(ny, yMin_, yMax_);
-    nx = clampi(nx, 0, WIDTH - 1);
-    ny = clampi(ny, 0, HEIGHT - 1);
-
-    moveTo(nx, ny);
-
-    // 3) Attempt firefighting after moving
-    fightIfNeeded(map, /*iFromStart*/ int(path_.size()) - 1);
-
-    // 4) If we used all water, next step will head to refill
-}
+// removed legacy step/fight/refill helpers (superseded by actRound)
 
 void Drone::logVision(const Map& map, std::vector<std::string>& outLines) const {
     for (int ix = x_ - 1; ix <= x_ + 1; ++ix) {
@@ -174,14 +109,24 @@ int Drone::dumpWater(Map& map, int maxLiters) {
     return allow;
 }
 
-void Drone::actRound(Map& map) {
+RefillStation Drone::nearestBase(const std::vector<RefillStation>& bases) const {
+    if (bases.empty()) return station_;
+    int best = INT_MAX; size_t bi = 0;
+    for (size_t i = 0; i < bases.size(); ++i) {
+        int d = std::abs(bases[i].x - x_) + std::abs(bases[i].y - y_);
+        if (d < best) { best = d; bi = i; }
+    }
+    return bases[bi];
+}
+
+void Drone::actRound(Map& map, const std::vector<RefillStation>& bases, bool alert) {
     // Organizer action budgets
     struct Budget { int move; int dump; };
     static const Budget budgets[] = {
         {50, 0}, {0, 10}, {15, 7}, {25, 5}, {40, 2}
     };
 
-    // Helper: refresh target if any severe fire exists
+    // Helper: refresh target if any severe fire exists (global truth)
     int fx = -1, fy = -1;
     if (!hasTarget_)
         hasTarget_ = findNearestSevereFire(map, fx, fy);
@@ -194,17 +139,24 @@ void Drone::actRound(Map& map) {
         state_ = hasTarget_ ? State::TO_FIRE : State::SCOUT;
         return;
     }
-    if (needRefill()) {
-        state_ = State::TO_BASE;
-    }
+    if (needRefill()) { state_ = State::TO_BASE; }
 
     // Act according to state
     switch (state_) {
         case State::TO_BASE: {
-            moveTowards(station_.x, station_.y, budgets[0].move);
-            if (x_ == station_.x && y_ == station_.y) {
-                water_ = capacity_;
-                state_ = hasTarget_ ? State::TO_FIRE : State::SCOUT;
+            if (alert) {
+                auto nb = nearestBase(bases);
+                moveTowards(nb.x, nb.y, budgets[0].move);
+                if (x_ == nb.x && y_ == nb.y) {
+                    water_ = capacity_;
+                    state_ = hasTarget_ ? State::TO_FIRE : State::SCOUT;
+                }
+            } else {
+                moveTowards(station_.x, station_.y, budgets[0].move);
+                if (x_ == station_.x && y_ == station_.y) {
+                    water_ = capacity_;
+                    state_ = hasTarget_ ? State::TO_FIRE : State::SCOUT;
+                }
             }
             return;
         }
@@ -245,31 +197,40 @@ void Drone::actRound(Map& map) {
             return;
         }
         case State::SCOUT: {
-            // If we see a severe fire, set target and go
-            int nfx, nfy;
-            if (findNearestSevereFire(map, nfx, nfy)) {
-                hasTarget_ = true; targetX_ = nfx; targetY_ = nfy; state_ = State::TO_FIRE;
-                // Use a move+dump budget to get closer this round
-                int dist = std::abs(targetX_ - x_) + std::abs(targetY_ - y_);
-                if (dist <= budgets[2].move) moveTowards(targetX_, targetY_, budgets[2].move);
-                else if (dist <= budgets[4].move) moveTowards(targetX_, targetY_, budgets[4].move);
-                else moveTowards(targetX_, targetY_, budgets[0].move);
+            // If alert is raised or a severe fire exists, converge
+            if (alert) {
+                int nfx, nfy;
+                if (findNearestSevereFire(map, nfx, nfy)) {
+                    hasTarget_ = true; targetX_ = nfx; targetY_ = nfy; state_ = State::TO_FIRE;
+                    int dist = std::abs(targetX_ - x_) + std::abs(targetY_ - y_);
+                    if (dist <= budgets[2].move) moveTowards(targetX_, targetY_, budgets[2].move);
+                    else if (dist <= budgets[4].move) moveTowards(targetX_, targetY_, budgets[4].move);
+                    else moveTowards(targetX_, targetY_, budgets[0].move);
+                    return;
+                }
+            } else {
+                // Legacy behavior: scout radiating outward
+                int nfx, nfy;
+                if (findNearestSevereFire(map, nfx, nfy)) {
+                    hasTarget_ = true; targetX_ = nfx; targetY_ = nfy; state_ = State::TO_FIRE;
+                    int dist = std::abs(targetX_ - x_) + std::abs(targetY_ - y_);
+                    if (dist <= budgets[2].move) moveTowards(targetX_, targetY_, budgets[2].move);
+                    else if (dist <= budgets[4].move) moveTowards(targetX_, targetY_, budgets[4].move);
+                    else moveTowards(targetX_, targetY_, budgets[0].move);
+                    return;
+                }
+                int steps = budgets[0].move;
+                while (steps-- > 0) {
+                    int nx = x_ + dirX_;
+                    int ny = y_ + dirY_;
+                    // bounce on boundaries
+                    if (nx < 0 || nx >= WIDTH) { dirX_ = -dirX_; nx = x_ + dirX_; }
+                    if (ny < 0 || ny >= HEIGHT) { dirY_ = -dirY_; ny = y_ + dirY_; }
+                    moveTo(clampi(nx, 0, WIDTH-1), clampi(ny, 0, HEIGHT-1));
+                    if (map.cells[x_][y_].fire_sev >= 4) { hasTarget_ = true; targetX_ = x_; targetY_ = y_; state_ = State::EXTINGUISH; break; }
+                }
                 return;
             }
-            // Otherwise, radiate outward from base and ping-pong at borders
-            int steps = budgets[0].move;
-            while (steps-- > 0) {
-                int nx = x_ + dirX_;
-                int ny = y_ + dirY_;
-                // bounce on boundaries
-                if (nx < 0 || nx >= WIDTH) { dirX_ = -dirX_; nx = x_ + dirX_; }
-                if (ny < 0 || ny >= HEIGHT) { dirY_ = -dirY_; ny = y_ + dirY_; }
-                // Move one step diagonally/horiz/vert depending on dir components
-                moveTo(clampi(nx, 0, WIDTH-1), clampi(ny, 0, HEIGHT-1));
-                // Opportunistic stop if we enter fire
-                if (map.cells[x_][y_].fire_sev >= 4) { hasTarget_ = true; targetX_ = x_; targetY_ = y_; state_ = State::EXTINGUISH; break; }
-            }
-            return;
         }
     }
 }

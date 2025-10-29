@@ -735,10 +735,28 @@ def build_anim_data_only(
         hud.set_text(f"Round {i}")
 
 
-    anim = FuncAnimation(fig, update, frames=len(rounds), interval=180, blit=False)
+    total_frames = len(rounds)
+    anim = FuncAnimation(fig, update, frames=total_frames, interval=180, blit=False)
     writer = PillowWriter(fps=6)
     _ensure_parent_dir(out_path)
-    anim.save(out_path, writer=writer, dpi=120)
+
+    # Progress indicator: prints percentage as frames are encoded
+    last_pct = {"p": -1}
+    def _progress_cb(i, n):
+        try:
+            pct = int(((i + 1) * 100) / max(1, n))
+        except Exception:
+            pct = 0
+        if pct != last_pct["p"]:
+            print(f"\rSaving GIF: {pct}% ({i+1}/{n})", end="", flush=True)
+            last_pct["p"] = pct
+
+    try:
+        anim.save(out_path, writer=writer, dpi=120, progress_callback=_progress_cb)
+        print()  # newline after progress
+    except TypeError:
+        # Older Matplotlib without progress_callback support
+        anim.save(out_path, writer=writer, dpi=120)
     plt.close(fig)
     return out_path
 
@@ -749,6 +767,7 @@ if __name__ == "__main__":
     parser.add_argument("--rotate", type=float, default=-30, help="Data rotation in degrees CCW (e.g., 300 is 15° clockwise from 315)")
     parser.add_argument("--rounds", type=int, default=25, help="Number of rounds/frames (only for demo data mode)")
     parser.add_argument("--outfile", type=str, default="GIFs/fire_viz_anim.gif", help="Output GIF path (default: GIFs/fire_viz_anim.gif)")
+    parser.add_argument("--max-frames", type=int, default=0, help="Limit number of frames rendered from outputs (0 = all)")
     parser.add_argument("--bg", type=str, default="", help="Background image path (optional)")
     parser.add_argument("--from-outputs", action='store_true', help="Use C++ simulator outputs (vision/, paths/, maps/) instead of demo data")
     parser.add_argument("--vision-dir", type=str, default="vision", help="Directory containing vision_roundNNN.txt files")
@@ -768,6 +787,12 @@ if __name__ == "__main__":
             map_path=map_path,
             maps_dir=maps_dir
         )
+        # Optionally limit frames from outputs
+        if args.max_frames and args.max_frames > 0 and len(rounds) > args.max_frames:
+            limit = max(1, args.max_frames)
+            rounds = rounds[:limit]
+            for name in list(tracks.keys()):
+                tracks[name] = tracks[name][:limit]
         if not rounds:
             print("No rounds discovered under vision/ and paths/.")
             raise SystemExit(1)
